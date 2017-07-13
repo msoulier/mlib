@@ -31,16 +31,16 @@ func SelectStdin(timeout_secs int64) (bool) {
     }
 }
 
-func Statfile(outfileName string) (logfileSize int64, err error) {
+func StatfileSize(filename string) (size int64, err error) {
     var stat syscall.Stat_t
-    err = syscall.Stat(outfileName, &stat)
-    if os.IsNotExist(err) {
-        logfileSize = 0
-    } else if err != nil {
-        panic(err)
+    size = 0
+    err = syscall.Stat(filename, &stat)
+    // use os.IsNotExist(err) to test if it doesn't exist
+    if err != nil {
+        return
     } else {
         // The file exists. Update our globals.
-        logfileSize = stat.Size
+        size = stat.Size
     }
-    return logfileSize, err
+    return size, err
 }
