@@ -5,14 +5,12 @@ import (
     "time"
     "io"
     "sync"
+    "fmt"
 )
 
 var (
     mu sync.Mutex
 )
-
-func init() {
-}
 
 // An io.Writer that prefixes the output with a timestamp.
 type TimeWriter struct {
@@ -38,4 +36,27 @@ func (w TimeWriter) Write(b []byte) (n int, err error) {
     }
     n, err = w.Writer.Write(b)
     return n, err
+}
+
+// Format bytes in a human-readable format.
+func Bytes2human(bytes int64) (string) {
+    unit := "B"
+    number := float64(bytes)
+    if number > 1024.0 {
+        number /= 1024.0
+        unit = "kB"
+    }
+    if number > 1024.0 {
+        number /= 1024.0
+        unit = "MB"
+    }
+    if number > 1024.0 {
+        number /= 1024.0
+        unit = "GB"
+    }
+    if number > 1024.0 {
+        number /= 1024.0
+        unit = "TB"
+    }
+    return fmt.Sprintf("%.02f%s", number, unit)
 }
