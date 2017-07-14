@@ -5,15 +5,15 @@ package mlib
 
 import (
     "syscall"
-    "time"
     "os"
     "fmt"
+    "time"
 )
 
-func SelectStdin(timeout_secs int64) (bool) {
+func SelectStdin(timeout_secs time.Duration) (bool) {
     var r_fdset syscall.FdSet
     var timeout syscall.Timeval
-    timeout.Sec = timeout_secs
+    timeout.Sec = int64(timeout_secs)
     timeout.Usec = 0
     for i := 0; i < 16; i++ {
         r_fdset.Bits[i] = 0
