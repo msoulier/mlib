@@ -30,17 +30,3 @@ func SelectStdin(timeout_secs time.Duration) (bool) {
         return false
     }
 }
-
-func StatfileSize(outfileName string) (size int64, err error) {
-    var stat syscall.Stat_t
-    size = 0
-    err = syscall.Stat(outfileName, &stat)
-    // use os.IsNotExist(err) to test if it doesn't exist
-    if err != nil {
-        return
-    } else {
-        // The file exists. Update our globals.
-        size = stat.Size
-    }
-    return size, err
-}
