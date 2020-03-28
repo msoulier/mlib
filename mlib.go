@@ -10,6 +10,9 @@ import (
     "github.com/op/go-logging"
     "compress/gzip"
     "path/filepath"
+    "runtime"
+    "strconv"
+    "bytes"
 )
 
 var (
@@ -105,8 +108,19 @@ func CompressFile(path string) error {
                 return err
             } else {
                 log.Debugf("gzip of %s succeeded, nbytes: %d", path, nbytes)
+                log.Debugf("unlinking %s", path)
+                os.Remove(path)
             }
         }
     }
     return nil
+}
+
+func GetGID() uint64 {
+    b := make([]byte, 64)
+    b = b[:runtime.Stack(b, false)]
+    b = bytes.TrimPrefix(b, []byte("goroutine "))
+    b = b[:bytes.IndexByte(b, ' ')]
+    n, _ := strconv.ParseUint(string(b), 10, 64)
+    return n
 }

@@ -2,12 +2,16 @@
 package mlib
 
 import (
+    "sort"
+    "path"
     "path/filepath"
     "os"
     "errors"
     "time"
     "fmt"
     "strings"
+    "regexp"
+    "io/ioutil"
 )
 
 type LogFile struct {
@@ -21,16 +25,19 @@ type LogFile struct {
     file *os.File
     // The current size of the current logfile.
     size int64
-    // file age?
+    // creation time in UTC
+    created time.Time
     // compress on rotation?
     compress bool
     // rotation size?
     maxbytes int64
     // rotation time?
     maxseconds int64
+    // number of logs to keep
+    nlogs int
 }
 
-func NewLogFile(path string, maxbytes, maxseconds int64) (*LogFile, error) {
+func NewLogFile(path string, maxbytes, maxseconds int64, nlogs int) (*LogFile, error) {
     var new_log LogFile
     var err error
     // Clean it, and keep absolute
@@ -46,9 +53,11 @@ func NewLogFile(path string, maxbytes, maxseconds int64) (*LogFile, error) {
         new_log.dir = filepath.Dir(path)
         new_log.file = nil
         new_log.size = 0
+        new_log.created = time.Now().UTC()
         new_log.compress = false
         new_log.maxbytes = maxbytes
         new_log.maxseconds = maxseconds
+        new_log.nlogs = nlogs
         // The directory must exist
         if _, err := os.Stat(new_log.dir); os.IsNotExist(err) {
             return nil, errors.New("directory " + new_log.dir + " does not exist")
@@ -57,17 +66,87 @@ func NewLogFile(path string, maxbytes, maxseconds int64) (*LogFile, error) {
     }
 }
 
+/*
+ * Private methods **************************************************
+ */
+
+func gettimesuffix(now time.Time) string {
+    log.Debugf("gettimesuffix: now is %s", now)
+    // http://fuckinggodateformat.com/
+    // %Y%m%e%H%M%S
+    // rfc 3339 - seriously??
+    rv := now.Format("20060102150405")
+    log.Debugf("returning format %s", rv)
+    // The timesuffix returned should never have spaces in it
+    if strings.Contains(rv, " ") {
+        panic(rv)
+    }
+    return rv
+}
+
+func (logfile LogFile) gen_newname() string {
+    filename := filepath.Base(logfile.path)
+    newname := fmt.Sprintf("%s-%s.log",
+                           strings.TrimSuffix(filename, ".log"),
+                           gettimesuffix(time.Now()))
+    log.Debugf("gen_newname: newname = %s", newname)
+    return newname
+}
+
+func (logfile LogFile) parse_creation() time.Time {
+    var datetime = regexp.MustCompile(`(\d{14})\.log`)
+    if datetime.MatchString(logfile.filename) {
+        // Matched name.
+        datetime_string := datetime.FindStringSubmatch(logfile.filename)[1]
+        log.Debugf("parsed out datetime: %q", datetime_string)
+        zone, _ := time.Now().Zone()
+        log.Debugf("timezone is now %s", zone)
+        t, err := time.Parse("20060102150405 MST", datetime_string + " " + zone)
+        if err == nil {
+            log.Debugf("time %q", t)
+            return t.UTC()
+        } else {
+            log.Errorf("time parse error on %s, using now: %s", logfile.filename, err)
+            return time.Now().UTC()
+        }
+    } else {
+        log.Debug("failed to match time string, using now")
+        return time.Now().UTC()
+    }
+}
+/*
+ * End Private methods **********************************************
+ */
+
+/*
+ * Public methods ***************************************************
+ */
+
 func (logfile *LogFile) Open() error {
     var err error
-    // FIXME: If the file already exists, stat it and check the size
-    logfile.filename = logfile.gen_newname()
+    oldname := logfile.filename
+    for i := 0; i < 3; i++ {
+        logfile.filename = logfile.gen_newname()
+        if oldname == logfile.filename {
+            log.Errorf("newname matches oldname: %s", oldname)
+            time.Sleep(time.Second*2)
+            continue
+        } else {
+            break
+        }
+    }
     current_path := logfile.CurrentPath()
 
     if stat, err := os.Stat(current_path); os.IsNotExist(err) {
         log.Debugf("%s does not yet exist", current_path)
+        logfile.created = time.Now().UTC()
     } else {
         log.Debugf("%s exists already, size %d", current_path, stat.Size())
         logfile.size = stat.Size()
+        // What to do with created if the file already exists? We can't rely
+        // on the filesystem storing created time.
+        // Luckily we put the file creation date and time into the filename.
+        logfile.created = logfile.parse_creation()
     }
 
     log.Debugf("opening %s", current_path)
@@ -110,29 +189,6 @@ func (logfile *LogFile) Write(b []byte) (int, error) {
     return nbytes, err
 }
 
-func gettimesuffix(now time.Time) string {
-    log.Debugf("gettimesuffix: now is %s", now)
-    // http://fuckinggodateformat.com/
-    // %Y%m%e%H%M%S
-    // rfc 3339 - seriously??
-    rv := now.Format("20060102150405")
-    log.Debugf("returning format %s", rv)
-    // The timesuffix returned should never have spaces in it
-    if strings.Contains(rv, " ") {
-        panic(rv)
-    }
-    return rv
-}
-
-func (logfile LogFile) gen_newname() string {
-    filename := filepath.Base(logfile.path)
-    newname := fmt.Sprintf("%s-%s.log",
-                           strings.TrimSuffix(filename, ".log"),
-                           gettimesuffix(time.Now()))
-    log.Debugf("gen_newname: newname = %s", newname)
-    return newname
-}
-
 // Return the current path to the current open file.
 func (logfile LogFile) CurrentPath() string {
     return filepath.Join(logfile.dir, logfile.filename)
@@ -146,7 +202,16 @@ func (logfile *LogFile) SetCompression(compress bool) {
 func (logfile LogFile) NeedsRotation() bool {
     if logfile.maxbytes != 0 {
         if logfile.size >= logfile.maxbytes {
-            log.Debugf("file %s needs rotation by size", logfile.path)
+            log.Debugf("file %s needs rotation by size", logfile.CurrentPath())
+            return true
+        }
+    }
+    if logfile.maxseconds != 0 {
+        now := time.Now().UTC()
+        duration := now.Sub(logfile.created)
+        log.Debugf("it has been %d seconds since file creation", duration.Seconds())
+        if int64(duration.Seconds()) > logfile.maxseconds {
+            log.Debugf("file %s needs rotation by time", logfile.CurrentPath())
             return true
         }
     }
@@ -157,18 +222,70 @@ func (logfile LogFile) GetPath() string {
     return logfile.path
 }
 
-func (logfile LogFile) RotateFile() error {
+func (logfile LogFile) RotateFile() (*LogFile, error) {
     // All we really need to do is close and open again
     oldfile := logfile.CurrentPath()
     log.Debugf("oldfile is %s", oldfile)
     logfile.Close()
     if err := logfile.Open(); err != nil {
-        return err
+        return nil, err
     }
 
     if logfile.compress {
         go CompressFile(oldfile)
     }
 
-    return nil
+    logfile.DeleteOldFiles()
+
+    // Reset metadata on the file.
+    logfile.size = 0
+    logfile.created = time.Now().UTC()
+
+    return &logfile, nil
 }
+
+// For sorting FileInfo objects by Name
+type ByName []os.FileInfo
+func (a ByName) Len() int               { return len(a) }
+func (a ByName) Swap(i, j int)          { a[i], a[j] = a[j], a[i] }
+func (a ByName) Less(i, j int) bool     { return a[i].Name() < a[j].Name() }
+
+func (logfile LogFile) DeleteOldFiles() {
+    if files, err := ioutil.ReadDir(logfile.dir); err != nil {
+        log.Errorf("unable to open directory %s: %s", logfile.dir, err)
+        return
+    } else {
+        dirfiles := make([]os.FileInfo, 0, 100)
+        for _, dirfile := range files {
+            log.Debugf("file in log dir %s: %s", logfile.dir, dirfile.Name())
+            // skip dotfiles
+            if strings.HasPrefix(dirfile.Name(), ".") {
+                continue
+            } else if regular := dirfile.Mode().IsRegular(); ! regular {
+                log.Debugf("%s/%s is not a regular file, skipping", logfile.dir, dirfile.Name())
+                continue
+            }
+            // should end in log or log.gz FIXME: configurable
+            if strings.HasSuffix(dirfile.Name(), ".log") ||
+               strings.HasSuffix(dirfile.Name(), ".log.gz") {
+                dirfiles = append(dirfiles, dirfile)
+            }
+        }
+        sort.Reverse(ByName(dirfiles))
+        log.Debugf("dirfiles is now %#v", dirfiles)
+        if len(dirfiles) > logfile.nlogs {
+            todelete := len(dirfiles) - logfile.nlogs
+            log.Info("logdir", logfile.dir, "- need to delete", todelete)
+            for _, file := range dirfiles[:todelete] {
+                todelete_path := path.Join(logfile.dir, file.Name())
+                if err := os.Remove(todelete_path); err != nil {
+                    log.Errorf("unlink: %s: %s", todelete_path, err)
+                }
+            }
+        }
+    }
+}
+
+/*
+ * End Public methods ***********************************************
+ */
