@@ -1,4 +1,4 @@
-// +build linux,amd64
+// +build linux,amd64 linux,arm64
 
 // vim: ft=go ts=4 sw=4 et ai:
 package mlib
