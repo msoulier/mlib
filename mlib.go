@@ -124,3 +124,25 @@ func GetGID() uint64 {
     n, _ := strconv.ParseUint(string(b), 10, 64)
     return n
 }
+
+// Takes a time.Duration and prints it in days, hours, minutes, seconds, rounded down
+func Duration2Human(diff time.Duration) string {
+    days := 0
+    hours := 0
+    minutes := 0
+    seconds := int(diff.Seconds())
+    if seconds > 60 {
+        minutes = int(seconds / 60)
+        seconds -= minutes*60
+    }
+    if minutes > 60 {
+        hours = int(minutes / 60)
+        minutes -= hours*60
+    }
+    if hours > 24 {
+        days = int(hours / 24)
+        hours -= days*24
+    }
+    s := fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds", days, hours, minutes, seconds)
+    return s
+}
