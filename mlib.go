@@ -89,7 +89,7 @@ func Bytes2human(bytes int64) string {
 // Given the path to a file on disk, perform a gzip on the file.
 func CompressFile(path string) error {
     newfilename := fmt.Sprintf("%s.gz", path)
-    log.Debugf("CompressFile: path %s, newfilename %s", path, newfilename)
+    log.Debugf("mlib.CompressFile: path %s, newfilename %s", path, newfilename)
     if oldfile, err := os.Open(path); err != nil {
         return err
     } else {
@@ -99,6 +99,9 @@ func CompressFile(path string) error {
         } else {
             defer newfile.Close()
             zipwriter := gzip.NewWriter(newfile)
+            // Note, this defer order is important or the zipwriter buffer
+            // will not be flushed to the file.
+            defer zipwriter.Close()
             zipwriter.Comment = "rotated logfile"
             zipwriter.Name = filepath.Base(path)
             zipwriter.ModTime = time.Now()

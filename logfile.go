@@ -21,6 +21,8 @@ type LogFile struct {
     filename string
     // The directory that we are writing to.
     dir string
+    // The prefix on each filename, based on the original requested path.
+    prefix string
     // The file object associated with this logfile.
     file *os.File
     // The current size of the current logfile.
@@ -51,6 +53,18 @@ func NewLogFile(path string, maxbytes, maxseconds int64, nlogs int) (*LogFile, e
         new_log.path = path
         new_log.filename = ""
         new_log.dir = filepath.Dir(path)
+        if new_log.path != "" {
+            base := filepath.Base(path)
+            ext := filepath.Ext(base)
+            if len(base) >= len(ext) {
+                new_log.prefix = base[0:len(base)-len(ext)]
+            } else {
+                log.Errorf("parsing log filename: base is shorter than ext: %s %s",
+                    base, ext)
+                // Need something, use the basename
+                new_log.prefix = base
+            }
+        }
         new_log.file = nil
         new_log.size = 0
         new_log.created = time.Now().UTC()
@@ -244,6 +258,21 @@ func (logfile LogFile) RotateFile() (*LogFile, error) {
     return &logfile, nil
 }
 
+// Return a boolean based on whether the provided filename is
+// a file that I am managing in this log directory.
+func (logfile LogFile) oneOfMine(name string) bool {
+    pattern := fmt.Sprintf(`%s-(\d{14})\.log(.gz)?`, logfile.prefix)
+    log.Debugf("LogFile.oneOfMine: pattern = %s", pattern)
+    var reg = regexp.MustCompile(pattern)
+    if reg.MatchString(name) {
+        log.Debugf("matched")
+        return true
+    } else {
+        log.Debugf("did not match")
+        return false
+    }
+}
+
 // For sorting FileInfo objects by Name
 type ByName []os.FileInfo
 func (a ByName) Len() int               { return len(a) }
@@ -265,9 +294,7 @@ func (logfile LogFile) DeleteOldFiles() {
                 log.Debugf("%s/%s is not a regular file, skipping", logfile.dir, dirfile.Name())
                 continue
             }
-            // should end in log or log.gz FIXME: configurable
-            if strings.HasSuffix(dirfile.Name(), ".log") ||
-               strings.HasSuffix(dirfile.Name(), ".log.gz") {
+            if logfile.oneOfMine(dirfile.Name()) {
                 dirfiles = append(dirfiles, dirfile)
             }
         }
