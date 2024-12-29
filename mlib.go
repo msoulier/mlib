@@ -13,6 +13,7 @@ import (
     "runtime"
     "strconv"
     "bytes"
+    "syscall"
 )
 
 var (
@@ -148,4 +149,41 @@ func Duration2Human(diff time.Duration) string {
     }
     s := fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds", days, hours, minutes, seconds)
     return s
+}
+
+// Copy a file from source to destination, with an optional move boolean
+// to delete the original. It also uses flock to advisory lock the destination
+// file in case another thread is doing the same, controlled by the lock boolean.
+// FIXME: if source and destination are on the same drive, just rename
+// Returns the number of bytes copied, and an error object.
+func CopyFile(source, dest string, move, lock bool) (int64, error) {
+	destfile, err := os.Create(dest)
+    if err != nil {
+		return 0, err
+	}
+    defer destfile.Close()
+    sourcefile, err := os.Open(source)
+    if err != nil {
+        return 0, err
+    }
+    defer sourcefile.Close()
+    // flock the destination file
+    if lock {
+        if err := syscall.Flock(int(destfile.Fd()), syscall.LOCK_EX); err != nil {
+            return 0, err
+        }
+        defer syscall.Flock(int(destfile.Fd()), syscall.LOCK_UN)
+    }
+    nBytes, err := io.Copy(destfile, sourcefile)
+    if err != nil {
+        return nBytes, err
+    }
+    if move {
+        // Delete the original.
+        err := os.Remove(source)
+        if err != nil {
+            return nBytes, err
+        }
+    }
+	return nBytes, nil
 }
