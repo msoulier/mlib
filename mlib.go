@@ -1,4 +1,3 @@
-// vim: ft=go ts=4 sw=4 et ai:
 package mlib
 
 import (
@@ -14,6 +13,7 @@ import (
     "strconv"
     "bytes"
     "syscall"
+	"regexp"
 )
 
 var (
@@ -130,7 +130,8 @@ func GetGID() uint64 {
 }
 
 // Takes a time.Duration and prints it in days, hours, minutes, seconds, rounded down
-func Duration2Human(diff time.Duration) string {
+// If abbrev is true, then drop more significant 0 values. So 0 days would be dropped.
+func Duration2Human(diff time.Duration, abbrev bool) string {
     days := 0
     hours := 0
     minutes := 0
@@ -147,7 +148,26 @@ func Duration2Human(diff time.Duration) string {
         days = int(hours / 24)
         hours -= days*24
     }
-    s := fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds", days, hours, minutes, seconds)
+    s := ""
+    if abbrev {
+        if days == 0 {
+            if hours == 0 {
+                if minutes == 0 {
+                    s = fmt.Sprintf("%d seconds", seconds)
+                } else {
+                    s = fmt.Sprintf("%d minutes and %d seconds", minutes, seconds)
+                }
+            } else {
+                s = fmt.Sprintf("%d hours, %d minutes and %d seconds", hours, minutes, seconds)
+            }
+        } else {
+            s = fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds",
+                days, hours, minutes, seconds)
+        }
+    } else {
+        s = fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds",
+            days, hours, minutes, seconds)
+    }
     return s
 }
 
@@ -186,4 +206,33 @@ func CopyFile(source, dest string, move, lock bool) (int64, error) {
         }
     }
 	return nBytes, nil
+}
+
+// Check the terms of the command by spitting on whitespace.
+// If any of them begin with $, replace
+// them with the corresponding environment variable.
+// FIXME: put this in mlib
+func InterpolateStringSplit(command string) []string {
+	split_re := regexp.MustCompile(`\s+`)
+	cmdary := split_re.Split(command, -1)
+    new_cmdary := make([]string, 0)
+    var_re := regexp.MustCompile(`^\$[^$]`)
+	for _, term := range cmdary {
+        value := ""
+        // $$ escapes interpolation
+        found := var_re.FindString(term)
+        if len(term) > 1 && found != "" {
+            name := term[1:]
+            value = os.Getenv(name)
+        } else {
+            value = term
+        }
+        new_cmdary = append(new_cmdary, value)
+    }
+    return new_cmdary
+}
+
+func ExampleFDuration2Human() {
+    duration := time.Duration(time.Second * 3600 * 24)
+    fmt.Printf("%s\n", Duration2Human(duration, false))
 }
