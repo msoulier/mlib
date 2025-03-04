@@ -131,7 +131,9 @@ func GetGID() uint64 {
 
 // Takes a time.Duration and prints it in days, hours, minutes, seconds, rounded down
 // If abbrev is true, then drop more significant 0 values. So 0 days would be dropped.
-func Duration2Human(diff time.Duration, abbrev bool) string {
+// If compat is true, the returned string will be less like English and a simple compat
+// clock like HH:MM:SS. And, compat makes the abbrev option do nothing.
+func Duration2Human(diff time.Duration, abbrev bool, compact bool) string {
     days := 0
     hours := 0
     minutes := 0
@@ -149,24 +151,28 @@ func Duration2Human(diff time.Duration, abbrev bool) string {
         hours -= days*24
     }
     s := ""
-    if abbrev {
-        if days == 0 {
-            if hours == 0 {
-                if minutes == 0 {
-                    s = fmt.Sprintf("%d seconds", seconds)
+    if compact {
+        s = fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        if abbrev {
+            if days == 0 {
+                if hours == 0 {
+                    if minutes == 0 {
+                        s = fmt.Sprintf("%d seconds", seconds)
+                    } else {
+                        s = fmt.Sprintf("%d minutes and %d seconds", minutes, seconds)
+                    }
                 } else {
-                    s = fmt.Sprintf("%d minutes and %d seconds", minutes, seconds)
+                    s = fmt.Sprintf("%d hours, %d minutes and %d seconds", hours, minutes, seconds)
                 }
             } else {
-                s = fmt.Sprintf("%d hours, %d minutes and %d seconds", hours, minutes, seconds)
+                s = fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds",
+                    days, hours, minutes, seconds)
             }
         } else {
             s = fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds",
                 days, hours, minutes, seconds)
         }
-    } else {
-        s = fmt.Sprintf("%d days, %d hours, %d minutes and %d seconds",
-            days, hours, minutes, seconds)
     }
     return s
 }
@@ -234,5 +240,5 @@ func InterpolateStringSplit(command string) []string {
 
 func ExampleFDuration2Human() {
     duration := time.Duration(time.Second * 3600 * 24)
-    fmt.Printf("%s\n", Duration2Human(duration, false))
+    fmt.Printf("%s\n", Duration2Human(duration, false, false))
 }
