@@ -1,7 +1,7 @@
 Simplified BSD License
 ======================
 
-_Copyright © Michael P. Soulier `<YEAR>`, `<OWNER>`_  
+_Copyright © 2025 Michael P. Soulier
 _All rights reserved._
 
 Redistribution and use in source and binary forms, with or without
